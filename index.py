@@ -7,18 +7,17 @@ def parse_csv(file_path):
         reader = csv.DictReader(csvfile)
         return list(reader)
 
-def generate_nacha_file(amounts_csv, banks_csv, output_file):
-    """Generate NACHA file using data from two CSV files."""
+def generate_nacha_file(input_csv, output_file):
+    """Generate NACHA file using CSV file."""
 
     # Initialize batch count
     batch_count = 1
 
-    # Load data from CSV files
-    amounts_data = parse_csv(amounts_csv)
-    banks_data = parse_csv(banks_csv)
+    # Load data from CSV file
+    csv_data = parse_csv(input_csv)
 
-    if not amounts_data or not banks_data:
-        raise ValueError("One or both CSV files are empty or invalid.")
+    if not csv_data:
+        raise ValueError("CSV file is empty or invalid.")
 
     # ===========================
     # File Header
@@ -28,8 +27,8 @@ def generate_nacha_file(amounts_csv, banks_csv, output_file):
     now = datetime.now()
     file_creation_date = now.strftime("%y%m%d")
     file_creation_time = now.strftime("%H%M")
-    immediate_dest = "123456789"
-    immediate_org = "123456789"
+    immediate_dest = "123456789"    # Bank ID
+    immediate_org = "123456789"     # Company ID
     file_id_modifier = "A"
     record_size = "094"
     blocking_factor = "10"
@@ -44,20 +43,17 @@ def generate_nacha_file(amounts_csv, banks_csv, output_file):
         f"{immediate_dest_name}{immediate_org_name}{reference_code}\n"
     ).ljust(94)
 
-    #print(file_creation_date)
-    #print(file_creation_time)
-
     # ============================
     # Batch Header
     # ============================
     service_class_code = "220"
     company_name = "My Company".ljust(16)
 
-    # still occupies space regardless its optional
+    # Optional
     company_discretionary_data = ""
     company_discretionary_data_padded = company_discretionary_data.ljust(20)
 
-    company_id = "123456789".ljust(10)    
+    company_id = "123456789".ljust(10)
     entry_descr = "PMT".ljust(10)
     descriptive_date = file_creation_date
     effective_entry_date = file_creation_date
@@ -70,8 +66,8 @@ def generate_nacha_file(amounts_csv, banks_csv, output_file):
     initial_batch_num = batch_num = 1
 
     batch_header = (
-            f"5{service_class_code}{company_name}{company_discretionary_data_padded}{company_id}PPD{entry_descr}{descriptive_date}{effective_entry_date}{settlement_date_padded}1{originating_dfi}"
-            f"{str(initial_batch_num).zfill(7)}\n"
+            f"5{service_class_code}{company_name}{company_discretionary_data_padded}{company_id}PPD{entry_descr}{descriptive_date}"
+            f"{effective_entry_date}{settlement_date_padded}1{originating_dfi}{str(initial_batch_num).zfill(7)}\n"
     ).ljust(94)
 
     # Entry Detail Records
@@ -81,13 +77,13 @@ def generate_nacha_file(amounts_csv, banks_csv, output_file):
     total_credit = 0
     entry_count = 0
 
-    for bank, amount in zip(banks_data, amounts_data):
-        receiving_dfi = bank["Receiving DFI"].strip()[:8].ljust(8)
-        check_digit = bank["Receiving DFI"].strip()[-1] # Get the last digit
-        account_number = bank["Account Number"].strip()[:17].rjust(17)
-        individual_id = bank["Individual ID"].strip()[:15].ljust(15)
-        individual_name = bank["Individual Name"].strip()[:22].ljust(22)
-        transaction_code = "22"
+    for row in csv_data:
+        receiving_dfi = row["Payee ABA"].strip()[:8].ljust(8)
+        check_digit = row["Payee ABA"].strip()[-1] # Get the last digit
+        account_number = row["Payee Account"].strip()[:17].rjust(17)
+        individual_id = row["User ID"].strip()[:15].ljust(15)
+        individual_name = row["User Name"].strip()[:22].ljust(22)
+        transaction_code = "22"     # Change if necessary for debit/credit distinction
         discretionary_data = "R".ljust(2)
 
         # Increment the batch no. for each entry
@@ -95,7 +91,7 @@ def generate_nacha_file(amounts_csv, banks_csv, output_file):
         batch_num += 1
 
         # Entry amount in cents
-        amount_in_cents = int(float(amount["Amount"]) * 100)
+        amount_in_cents = int(float(row["Payee Amount"]) * 100)
 
         # Determine total credits/debits
         total_credit += amount_in_cents if amount_in_cents > 0 else 0
@@ -154,10 +150,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Generate NACHA file from CSV files.")
-    parser.add_argument("amounts_csv", help="Path to the CSV file with total dollar amounts.")
-    parser.add_argument("banks_csv", help="Path to the CSV file with bank information.")
+    parser.add_argument("input_csv", help="Path to the CSV file.")
     parser.add_argument("output_file", help="Path to save the generated NACHA file.")
 
     args = parser.parse_args()
-    generate_nacha_file(args.amounts_csv, args.banks_csv, args.output_file)
-
+    generate_nacha_file(args.input_csv, args.output_file)
